@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Jan 22 14:21:39 2022
+Created on Fri Jan 14 14:04:50 2022
 
 @author: matsunaga
 """
@@ -24,31 +24,30 @@ import skimage.util
 
 from my_packege import tool
 #from my_packege.my_class.ClassMultipleDWTandBlock import ClassMultipleDWTandBlock as CMDB
-from my_packege.my_class.ClassMultipleDWTandBlock import ClassMultipleDWTandBlock as CMDB
-
+from my_packege.my_class.ClassMyMultipleDWTandBlock2 import ClassMultipleDWTandBlock as CMDB
 
 """ 準備 """
-savepath_pre = "result\\main\\QQQ\\"
+savepath_pre = "result\\main3\\overlap\\"
 
 img_name = 'man.bmp'
 #img_name = 'man_leveling.png'
 #img_name = 'Honeyview_image-name-ec.png'
 #img_name = 'Honeyview_image-name-ec (4).png'
-img_original = cv2.imread('image\\' + img_name , cv2.IMREAD_GRAYSCALE)
-img_original = img_original.clip(2,253)
-
-
-
+img_original_ = cv2.imread('image/man.bmp', cv2.IMREAD_GRAYSCALE)
+img_original_pre = cv2.imread('image\\' + img_name , cv2.IMREAD_GRAYSCALE)
+img_original_pre = img_original_pre.clip(10,245)
 watermark = cv2.imread('Watermark\\16_16\\0.png',cv2.IMREAD_GRAYSCALE)
-watermarks = tool.get_image('Watermark\\16_16\\', '*.png')
-ws = tool.make_watermarks(watermarks[1], [64,64])
-
-
+watermarks = tool.get_image('Watermark\\overlap\\', '*.png')
 
 """ 埋め込みの設定 """
 N = 3
 Q = 1
 BLOCK_SIZE = (2, 2)
+
+target = [0.25, 0.75]
+modulo = 1
+
+diff_block = [4, 4]
 
 """ 埋め込みにどの透かし画像から始めるかを決める。※watermaeks[0]の順番から。 """
 start_num_embed = 0
@@ -56,14 +55,15 @@ start_num_embed = 0
 start_num = 0
 
 """" 埋め込みに使うインスタンスを作成 """
-cmdb = CMDB(N, Q, BLOCK_SIZE)
+cmdb = CMDB(N, Q, BLOCK_SIZE, target, modulo)
 
+img_original = cmdb.preembed(img_original_pre)
 
-#img_original = cmdb.preembed(img_original)
 
 """ 埋め込み&保存 ------------------------------------------------------------------------------------------------------"""
 
 """" ファイル関係 """
+
 filename_status = 'N' + str(N).zfill(2) + 'Q' + str(Q).zfill(2) \
     + 'BS' + str(BLOCK_SIZE[0]).zfill(2) + 'x' + str(BLOCK_SIZE[1]).zfill(2)
 savepass = savepath_pre + Path(img_name).stem + '\\' + Path(img_name).stem + ',' + cmdb.status()
@@ -73,9 +73,10 @@ os.makedirs(savepass, exist_ok=True)
 os.makedirs(savepass + '\\ext', exist_ok=True)
 
 block_number =  img_original.shape // cmdb.need_size // watermark.shape
-LM = [0] * len(watermarks[0])
+img_embs = [None] * len(watermarks[0])
+extract_imgs = [None] * len(watermarks[0])
+
 psnr = [None] * len(watermarks[0])
-embed_imgs = []
 
 plt.figure(5)
 for i in range(block_number[0] * block_number[1]):
@@ -88,33 +89,34 @@ for i in range(block_number[0] * block_number[1]):
     """ １次元と２次元表現の橋渡し的なやつ """
     row = i // block_number[0]
     col = i % block_number[0]
-    emb_block = 0
+    #emb_block = cmdb.need_size * watermark.shape * [row,col]
+    emb_block = [0,0]
     i_shift = (i + start_num_embed) % len(watermarks[0])
     
-    embed_img , LM[i] = cmdb.embed(img_original, ws[i_shift], emb_block)
-    embed_imgs.append(embed_img)
-    psnr[i] = cv2.PSNR(img_original, embed_img)
+    img_embs[i] = cmdb.embed(img_original, watermarks[1][i_shift], emb_block)
     
-    extract_img = cmdb.extract(embed_img, LM[i])
-    
+    psnr[i] = cv2.PSNR(img_original_, img_embs[i])
+    diff = cmdb.calcdiff(img_embs[i], img_embs[i])
+    extract_imgs[i], _ = cmdb.extract(img_embs[i], diff)
     
     filename = Path(img_name).stem + ',W' + Path(watermarks[0][i_shift].split('\\')[-1]).stem.zfill(3) + \
         '(' + str(row) + ',' + str(col) + ')' + filename_status + '.png'
-    cv2.imwrite(savepass + '\\' + filename, embed_img)
-    
-    cv2.imwrite(savepass + '\\ext\\ext_[' + str(i) + ',' + str(i_shift) + ']' +  filename, extract_img)
+    cv2.imwrite(savepass + '\\' + filename, img_embs[i])
+    cv2.imwrite(savepass + '\\ext\\ext_[' + str(i) + ',' + str(i_shift) + ']' +  filename, extract_imgs[i])
     #print('!')
     
+    
     plt.subplot(4,4,i+1)
-    plt.imshow(extract_img, vmin=0, vmax=255, cmap = 'gray')
+    plt.imshow(extract_imgs[i], vmin=0, vmax=255, cmap = 'gray')
     #print(i, i_shift)
     
-means = np.sum(np.sum(embed_imgs,axis=1),axis=1) / embed_imgs[0].size
+    
+    
     
 """ 平均値攻撃 ------------------------------------------------------------------------------------------------------"""
 
 """ 前準備 """
-img_sum = np.zeros( embed_imgs[0].shape, dtype = float)
+img_sum = np.zeros( img_embs[0].shape, dtype = float)
 
 filename_pre = 'ExtractWatermakAfterMeanAttack' 
 filename_status = 'N' + str(N).zfill(2) + 'Q' + str(Q).zfill(2) \
@@ -128,28 +130,38 @@ os.makedirs(savepass, exist_ok=True)
 
 plt.figure(1)
 
+
+diffh = [None] * 16
+
 #print("\n\n抽出")
-for i in range(len(embed_imgs)):  
+for i in range(len(img_embs)):  
 
     i_pre = i
-    i = (i + start_num) % len(embed_imgs)
+    i = (i + start_num) % len(img_embs)
     #print("i = ", i)
     
     """ 
     平均値攻撃の実行
-    img_meanにはembed_imgsの0からi番目までの平均が入る。
+    img_meanにはimg_embsの0からi番目までの平均が入る。
     よってi番目のループではi枚の平均値攻撃が行われる。
     """
-    img_sum += embed_imgs[i]
+    img_sum += img_embs[i]
     img_mean = img_sum / (i_pre + 1)
     img_mean = np.round(np.clip(img_mean,0,255)).astype('uint8')
-    img_mean_blocks = skimage.util.view_as_blocks(img_mean,tuple(cmdb.need_size * watermarks[1][0].shape))
-    #img_mean_blocks = tool.split_image_cut(img_mean, cmdb.need_size * watermarks[1][0].shape)
      
+    
     """ 
     抽出
     """
-    extract_w = cmdb.extract(img_mean, LM[i])
+    diff = cmdb.calcdiff(img_mean, img_embs[i])
+    extract_w, aaa = cmdb.extract(img_mean, diff)
+    
+    
+    
+
+    
+    
+
     
     """ 保存関係 """
     filename_middle += str(i) + '+'   
@@ -171,6 +183,7 @@ plt.imshow(embed_img , cmap = 'gray')
 plt.subplot(224)
 plt.imshow(extract_w , cmap = 'gray')
 """
+
 
 
 

@@ -27,23 +27,22 @@ from my_packege import tool
 from my_packege.my_class.ClassMultipleDWTandBlock import ClassMultipleDWTandBlock as CMDB
 
 
+print("大元プログラム実行開始")
+
 """ 準備 """
-savepath_pre = "result\\main\\QQQ\\"
+savepath_pre = "result\\main\\overlap\\"
 
 img_name = 'man.bmp'
 #img_name = 'man_leveling.png'
 #img_name = 'Honeyview_image-name-ec.png'
 #img_name = 'Honeyview_image-name-ec (4).png'
-img_original = cv2.imread('image\\' + img_name , cv2.IMREAD_GRAYSCALE)
-img_original = img_original.clip(2,253)
-
-
+img_original_pre = cv2.imread('image\\' + img_name , cv2.IMREAD_GRAYSCALE)
+img_original = img_original_pre.clip(2,253)
+cv2.imwrite('man_clip.png', img_original_pre)
 
 watermark = cv2.imread('Watermark\\16_16\\0.png',cv2.IMREAD_GRAYSCALE)
-watermarks = tool.get_image('Watermark\\16_16\\', '*.png')
-ws = tool.make_watermarks(watermarks[1], [64,64])
-
-
+watermarks = tool.get_image('Watermark\\overlap\\', '*.png')
+#watermarks = tool.make_watermarks(watermarks[1], [64,64])
 
 """ 埋め込みの設定 """
 N = 3
@@ -59,7 +58,7 @@ start_num = 0
 cmdb = CMDB(N, Q, BLOCK_SIZE)
 
 
-#img_original = cmdb.preembed(img_original)
+#img_original = cmdb.preembed(img_original_pre)
 
 """ 埋め込み&保存 ------------------------------------------------------------------------------------------------------"""
 
@@ -74,8 +73,8 @@ os.makedirs(savepass + '\\ext', exist_ok=True)
 
 block_number =  img_original.shape // cmdb.need_size // watermark.shape
 LM = [0] * len(watermarks[0])
-psnr = [None] * len(watermarks[0])
 embed_imgs = []
+psnr = [None] * len(watermarks[0])
 
 plt.figure(5)
 for i in range(block_number[0] * block_number[1]):
@@ -88,12 +87,13 @@ for i in range(block_number[0] * block_number[1]):
     """ １次元と２次元表現の橋渡し的なやつ """
     row = i // block_number[0]
     col = i % block_number[0]
-    emb_block = 0
+    emb_block = [0, 0]
     i_shift = (i + start_num_embed) % len(watermarks[0])
     
-    embed_img , LM[i] = cmdb.embed(img_original, ws[i_shift], emb_block)
+    embed_img , LM[i] = cmdb.embed(img_original, watermarks[1][i_shift], emb_block)
     embed_imgs.append(embed_img)
     psnr[i] = cv2.PSNR(img_original, embed_img)
+    
     
     extract_img = cmdb.extract(embed_img, LM[i])
     
